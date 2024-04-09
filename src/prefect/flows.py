@@ -128,6 +128,23 @@ if TYPE_CHECKING:
     from prefect.deployments.runner import FlexibleScheduleList, RunnerDeployment
 
 
+def nested_work():
+    """Function that does some meaningless work to showcase how CodSpeed detects performance regressions."""
+    for _ in range(400):
+        a = 2
+        b = 3
+        a = a + b
+
+
+def do_work():
+    """Function that does some meaningless work to showcase how CodSpeed detects performance regressions."""
+    for _ in range(600):
+        a = 2
+        b = 3
+        a = a + b
+    nested_work()
+
+
 @PrefectObjectRegistry.register_instances
 class Flow(Generic[P, R]):
     """
@@ -215,6 +232,8 @@ class Flow(Generic[P, R]):
         on_crashed: Optional[List[Callable[[FlowSchema, FlowRun, State], None]]] = None,
         on_running: Optional[List[Callable[[FlowSchema, FlowRun, State], None]]] = None,
     ):
+        do_work()
+
         if name is not None and not isinstance(name, str):
             raise TypeError(
                 "Expected string for flow parameter 'name'; got {} instead. {}".format(

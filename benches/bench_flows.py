@@ -27,105 +27,73 @@ def bench_flow_call(benchmark: BenchmarkFixture, options):
     benchmark(noop_flow)
 
 
-@pytest.mark.parametrize("num_tasks", [10, 50, 100])
-def bench_flow_with_submitted_tasks(benchmark: BenchmarkFixture, num_tasks: int):
+def bench_flow_with_submitted_tasks(benchmark: BenchmarkFixture):
     test_task = task(noop_function)
 
     @flow
     def benchmark_flow():
-        for _ in range(num_tasks):
-            test_task.submit()
+        test_task.submit()
 
-    if num_tasks < 100:
-        benchmark(benchmark_flow)
-    else:
-        benchmark.pedantic(benchmark_flow)
+    benchmark(benchmark_flow)
 
 
-@pytest.mark.parametrize("num_tasks", [10, 50, 100, 250])
-def bench_flow_with_called_tasks(benchmark: BenchmarkFixture, num_tasks: int):
+def bench_flow_with_called_tasks(benchmark: BenchmarkFixture):
     test_task = task(noop_function)
 
     @flow
     def benchmark_flow():
-        for _ in range(num_tasks):
-            test_task()
+        test_task()
 
-    if num_tasks < 100:
-        benchmark(benchmark_flow)
-    else:
-        benchmark.pedantic(benchmark_flow)
+    benchmark(benchmark_flow)
 
 
-@pytest.mark.parametrize("num_tasks", [10, 50, 100, 250])
-def bench_async_flow_with_async_tasks(benchmark: BenchmarkFixture, num_tasks: int):
+def bench_async_flow_with_async_tasks(benchmark: BenchmarkFixture):
     test_task = task(anoop_function)
 
     @flow
     async def benchmark_flow():
         async with anyio.create_task_group() as tg:
-            for _ in range(num_tasks):
-                tg.start_soon(test_task)
-
-    if num_tasks < 100:
-        benchmark(anyio.run, benchmark_flow)
-    else:
-        benchmark.pedantic(anyio.run, args=(benchmark_flow,))
-
-
-@pytest.mark.parametrize("num_tasks", [10, 50, 100])
-def bench_async_flow_with_submitted_sync_tasks(
-    benchmark: BenchmarkFixture, num_tasks: int
-):
-    test_task = task(noop_function)
-
-    @flow
-    async def benchmark_flow():
-        for _ in range(num_tasks):
-            test_task.submit()
-
-    if num_tasks < 100:
-        benchmark(anyio.run, benchmark_flow)
-    else:
-        benchmark.pedantic(anyio.run, args=(benchmark_flow,))
-
-
-@pytest.mark.parametrize("num_flows", [5, 10, 20])
-def bench_flow_with_subflows(benchmark: BenchmarkFixture, num_flows: int):
-    test_flow = flow(noop_function)
-
-    @flow
-    def benchmark_flow():
-        for _ in range(num_flows):
-            test_flow()
-
-    benchmark(benchmark_flow)
-
-
-@pytest.mark.parametrize("num_flows", [5, 10, 20])
-def bench_async_flow_with_sequential_subflows(
-    benchmark: BenchmarkFixture, num_flows: int
-):
-    test_flow = flow(anoop_function)
-
-    @flow
-    async def benchmark_flow():
-        for _ in range(num_flows):
-            await test_flow()
+            tg.start_soon(test_task)
 
     benchmark(anyio.run, benchmark_flow)
 
 
-@pytest.mark.parametrize("num_flows", [5, 10, 20])
-def bench_async_flow_with_concurrent_subflows(
-    benchmark: BenchmarkFixture, num_flows: int
-):
+def bench_async_flow_with_submitted_sync_tasks(benchmark: BenchmarkFixture):
+    test_task = task(noop_function)
+
+    @flow
+    async def benchmark_flow():
+        test_task.submit()
+
+    benchmark(anyio.run, benchmark_flow)
+
+
+def bench_flow_with_subflows(benchmark: BenchmarkFixture):
+    test_flow = flow(noop_function)
+
+    @flow
+    def benchmark_flow():
+        test_flow()
+
+    benchmark(benchmark_flow)
+
+
+def bench_async_flow_with_sequential_subflows(benchmark: BenchmarkFixture):
+    test_flow = flow(anoop_function)
+
+    @flow
+    async def benchmark_flow():
+        await test_flow()
+
+    benchmark(anyio.run, benchmark_flow)
+
+
+def bench_async_flow_with_concurrent_subflows(benchmark: BenchmarkFixture):
     test_flow = flow(anoop_function)
 
     @flow
     async def benchmark_flow():
         async with anyio.create_task_group() as tg:
-            for _ in range(num_flows):
-                tg.start_soon(test_flow)
+            tg.start_soon(test_flow)
 
     benchmark(anyio.run, benchmark_flow)

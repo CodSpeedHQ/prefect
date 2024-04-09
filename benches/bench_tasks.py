@@ -2,6 +2,8 @@ from pytest_benchmark.fixture import BenchmarkFixture
 
 from prefect import flow, task
 
+# trigger CodSpeed
+
 
 def noop_function():
     pass

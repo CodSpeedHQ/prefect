@@ -67,7 +67,7 @@ def validate_variable_name(value):
 
 class ActionBaseModel(PrefectBaseModel):
     class Config:
-        extra = "forbid"
+        extra = "ignore"
 
     def __iter__(self):
         # By default, `pydantic.BaseModel.__iter__` yields from `self.__dict__` directly
@@ -342,13 +342,6 @@ class StateCreate(ActionBaseModel):
         default_factory=schemas.states.StateDetails,
         description="The details of the state to create",
     )
-
-    timestamp: Optional[DateTimeTZ] = Field(
-        default=None,
-        repr=False,
-        ignored=True,
-    )
-    id: Optional[UUID] = Field(default=None, repr=False, ignored=True)
 
     @validator("name", always=True)
     def default_name_from_type(cls, v, *, values, **kwargs):

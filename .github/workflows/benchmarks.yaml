@@ -16,21 +16,17 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: read
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   run-benchmarks:
     name: Benchmark
     # Runs with ephemeral API and SQLite database right now
 
-    runs-on:
-      group: oss-larger-runners
+    runs-on: ubuntu-latest
     timeout-minutes: 20
 
     steps:
@@ -39,16 +35,11 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      - name: Set up Docker Buildx
-        if: ${{ matrix.build-docker-images }}
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: image=moby/buildkit:v0.12.5
-
-      - name: Set up Python 3.10
+      - name: Set up Python 3.12
         uses: actions/setup-python@v5
+        id: setup_python
         with:
-          python-version: "3.10"
+          python-version: "3.12"
 
       - name: UV Cache
         uses: actions/cache@v4
@@ -87,25 +78,7 @@ jobs:
           #       https://github.com/PrefectHQ/prefect/issues/6990
 
       - name: Run benchmarks
-        env:
-          HEAD_REF: ${{ github.head_ref }}
-          GITHUB_SHA: ${{ github.sha }}
-        # Includes comparison to previous benchmarks if available
-        run: |
-          if [[ -z "$HEAD_REF" ]]; then
-            # HEAD_REF is unset or empty, use 'main' with the SHA
-            uniquename="main-$GITHUB_SHA"
-          else
-            # HEAD_REF is set, use the branch name directly
-            uniquename="$HEAD_REF"
-          fi
-
-          # Allow alphanumeric, underscores, and dashes, and replace other
-          # characters with an underscore
-          sanitized_uniquename="${uniquename//[^a-zA-Z0-9_\-]/_}"
-
-          PREFECT_API_URL="http://127.0.0.1:4200/api"
-          python benches \
-          --timeout=180 \
-          --benchmark-save="${sanitized_uniquename}" \
-          ${{ steps.bench-cache.outputs.cache-hit && '--benchmark-compare' || '' }}
+        uses: CodSpeedHQ/action@v2
+        with:
+          token: ${{ secrets.CODSPEED_TOKEN }}
+          run: pytest benches --codspeed

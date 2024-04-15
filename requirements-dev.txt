@@ -1,8 +1,11 @@
 ruff
 cairosvg
 codespell>=2.2.6
-ddtrace
-ipython
+# ddtrace
+# Pin IPython to 8.12 when building on Python 3.8
+# https://github.com/ipython/ipython/blob/main/README.rst
+ipython == 8.12.*; python_version == '3.8'
+ipython; python_version > '3.8'
 jinja2
 mkdocs
 mkdocs-gen-files
@@ -19,6 +22,7 @@ pytest > 7, < 8 # Datadog's ddtrace does not support pytest 8 yet. See https://g
 pytest-asyncio >= 0.18.2, != 0.22.0, < 0.23.0 # Cannot override event loop in 0.23.0. See https://github.com/pytest-dev/pytest-asyncio/issues/706 for more details.
 pytest-cov
 pytest-benchmark
+pytest-codspeed
 pytest-env
 pytest-flakefinder
 pytest-timeout

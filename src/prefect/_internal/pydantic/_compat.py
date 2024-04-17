@@ -11,10 +11,12 @@ from ._base_model import (
     Field,
     FieldInfo,
     PrivateAttr,
+    SecretField,
     SecretStr,
     ValidationError,
 )
 from ._flags import HAS_PYDANTIC_V2, USE_PYDANTIC_V2
+from ._networks import HttpUrl
 from .utilities.config_dict import ConfigMixin
 from .utilities.field_validator import field_validator
 from .utilities.model_construct import ModelConstructMixin, model_construct
@@ -24,6 +26,7 @@ from .utilities.model_dump_json import ModelDumpJsonMixin, model_dump_json
 from .utilities.model_fields import ModelFieldMixin
 from .utilities.model_fields_set import ModelFieldsSetMixin, model_fields_set
 from .utilities.model_json_schema import ModelJsonSchemaMixin, model_json_schema
+from .utilities.model_rebuild import ModelRebuildMixin
 from .utilities.model_validate import ModelValidateMixin, model_validate
 from .utilities.model_validate_json import ModelValidateJsonMixin, model_validate_json
 from .utilities.model_validator import model_validator
@@ -49,6 +52,7 @@ else:
         ModelDumpMixin,
         ModelDumpJsonMixin,
         ModelJsonSchemaMixin,
+        ModelRebuildMixin,
         ModelValidateMixin,
         ModelValidateJsonMixin,
         ModelFieldMixin,
@@ -76,7 +80,9 @@ __all__ = [
     "field_validator",
     "model_validator",
     "PrivateAttr",
+    "SecretField",
     "SecretStr",
     "ConfigDict",
     "ValidationError",
+    "HttpUrl",
 ]

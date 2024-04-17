@@ -13,19 +13,12 @@ import orjson
 import pendulum
 from packaging.version import Version
 
-from prefect._internal.pydantic import HAS_PYDANTIC_V2
-
-if HAS_PYDANTIC_V2:
-    import pydantic.v1 as pydantic
-    from pydantic.v1 import BaseModel, Field, SecretField
-    from pydantic.v1.json import custom_pydantic_encoder
-else:
-    import pydantic
-    from pydantic import BaseModel, Field, SecretField
-    from pydantic.json import custom_pydantic_encoder
-
+from prefect._internal.pydantic._flags import USE_V2_MODELS
 from prefect._internal.schemas.fields import DateTimeTZ
 from prefect._internal.schemas.serializers import orjson_dumps_extra_compatible
+from prefect.pydantic import VERSION as PYDANTIC_VERSION
+from prefect.pydantic import BaseModel, Field, SecretField
+from prefect.utilities.pydantic import custom_pydantic_encoder
 
 T = TypeVar("T")
 
@@ -42,33 +35,33 @@ class PrefectBaseModel(BaseModel):
     subtle unintentional testing errors.
     """
 
-    class Config:
-        # extra attributes are forbidden in order to raise meaningful errors for
-        # bad API payloads
-        # We cannot load this setting through the normal pattern due to circular
-        # imports; instead just check if its a truthy setting directly
-        if os.getenv("PREFECT_TEST_MODE", "0").lower() in ["1", "true"]:
-            extra = "forbid"
-        else:
-            extra = "ignore"
-
-        json_encoders = {
-            # Uses secret fields and strange logic to avoid a circular import error
-            # for Secret dict in prefect.blocks.fields
-            SecretField: lambda v: v.dict() if getattr(v, "dict", None) else str(v)
-        }
-
-        pydantic_version = getattr(pydantic, "__version__", None)
-        if pydantic_version is not None and Version(pydantic_version) >= Version(
-            "1.9.2"
-        ):
-            copy_on_model_validation = "none"
-        else:
-            copy_on_model_validation = False
-
-        # Use orjson for serialization
-        json_loads = orjson.loads
-        json_dumps = orjson_dumps_extra_compatible
+    model_config = {
+        **(
+            {
+                "json_encoders": {
+                    # Uses secret fields and strange logic to avoid a circular import error
+                    # for Secret dict in prefect.blocks.fields
+                    SecretField: lambda v: v.dict()
+                    if getattr(v, "dict", None)
+                    else str(v)
+                },
+                "json_loads": orjson.loads,
+                "json_dumps": orjson_dumps_extra_compatible,
+            }
+            if not USE_V2_MODELS
+            else {}
+        ),
+        **(
+            {"extra": "forbid"}
+            if os.getenv("PREFECT_TEST_MODE", "0").lower() in ["1", "true"]
+            else {"extra": "ignore"}
+        ),
+        **(
+            {"copy_on_model_validation": "none"}
+            if not USE_V2_MODELS and Version(PYDANTIC_VERSION) >= Version("1.9.2")
+            else ({"copy_on_model_validation": False} if not USE_V2_MODELS else {})
+        ),
+    }
 
     def _reset_fields(self) -> Set[str]:
         """A set of field names that are reset when the PrefectBaseModel is copied.
@@ -178,24 +171,21 @@ class PrefectBaseModel(BaseModel):
         if reset_fields:
             update = update or dict()
             for field in self._reset_fields():
-                update.setdefault(field, self.__fields__[field].get_default())
+                update.setdefault(field, self.model_fields[field].get_default())
         return super().copy(update=update, **kwargs)
 
     def __rich_repr__(self):
         # Display all of the fields in the model if they differ from the default value
-        for name, field in self.__fields__.items():
+        for name, field in self.model_fields.items():
             value = getattr(self, name)
+            type_ = field.annotation if USE_V2_MODELS else field.type_
 
             # Simplify the display of some common fields
-            if field.type_ == UUID and value:
+            if type_ == UUID and value:
                 value = str(value)
-            elif (
-                isinstance(field.type_, datetime.datetime)
-                and name == "timestamp"
-                and value
-            ):
+            elif isinstance(type_, datetime.datetime) and name == "timestamp" and value:
                 value = pendulum.instance(value).isoformat()
-            elif isinstance(field.type_, datetime.datetime) and value:
+            elif isinstance(type_, datetime.datetime) and value:
                 value = pendulum.instance(value).diff_for_humans()
 
             yield name, value, field.get_default()
@@ -224,7 +214,10 @@ class ObjectBaseModel(IDBaseModel):
     """
 
     class Config:
-        orm_mode = True
+        if USE_V2_MODELS:
+            from_attributes = True
+        else:
+            orm_mode = True
 
     created: Optional[DateTimeTZ] = Field(default=None, repr=False)
     updated: Optional[DateTimeTZ] = Field(default=None, repr=False)
@@ -239,7 +232,7 @@ class ActionBaseModel(PrefectBaseModel):
 
     def __iter__(self):
         # By default, `pydantic.BaseModel.__iter__` yields from `self.__dict__` directly
-        # instead  of going through `_iter`. We want tor retain our custom logic in
+        # instead  of going through `_iter`. We want to retain our custom logic in
         # `_iter` during `dict(model)` calls which is what Pydantic uses for
         # `parse_obj(model)`
         yield from self._iter(to_dict=True)
@@ -247,7 +240,7 @@ class ActionBaseModel(PrefectBaseModel):
     def _iter(self, *args, **kwargs) -> Generator[tuple, None, None]:
         # Drop fields that are marked as `ignored` from json and dictionary outputs
         exclude = kwargs.pop("exclude", None) or set()
-        for name, field in self.__fields__.items():
+        for name, field in self.model_fields.items():
             if field.field_info.extra.get("ignored"):
                 exclude.add(name)
 

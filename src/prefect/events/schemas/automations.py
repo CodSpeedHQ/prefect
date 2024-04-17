@@ -15,18 +15,13 @@ from uuid import UUID
 
 from typing_extensions import TypeAlias
 
-from prefect._internal.pydantic import HAS_PYDANTIC_V2
-from prefect._internal.schemas.validators import validate_trigger_within
-
-if HAS_PYDANTIC_V2:
-    from pydantic.v1 import Field, root_validator, validator
-    from pydantic.v1.fields import ModelField
-else:
-    from pydantic import Field, root_validator, validator
-    from pydantic.fields import ModelField
-
-from prefect._internal.schemas.bases import PrefectBaseModel
 from prefect.events.actions import ActionTypes
+from prefect.pydantic import (
+    Field,
+    PrefectBaseModel,
+    model_validator,
+)
+from prefect.types import AtLeastFiveMinutesDuration, NonNegativeDuration
 from prefect.utilities.collections import AutoEnum
 
 from .events import ResourceSpecification
@@ -121,10 +116,8 @@ class EventTrigger(ResourceTrigger):
             "triggers)"
         ),
     )
-    within: timedelta = Field(
+    within: NonNegativeDuration = Field(
         timedelta(0),
-        minimum=0.0,
-        exclusiveMinimum=False,
         description=(
             "The time period over which the events must occur.  For Reactive triggers, "
             "this may be as low as 0 seconds, but must be at least 10 seconds for "
@@ -132,13 +125,7 @@ class EventTrigger(ResourceTrigger):
         ),
     )
 
-    @validator("within")
-    def enforce_minimum_within(
-        cls, value: timedelta, values, config, field: ModelField
-    ):
-        return validate_trigger_within(value, field)
-
-    @root_validator(skip_on_failure=True)
+    @model_validator(mode="before")
     def enforce_minimum_within_for_proactive_triggers(cls, values: Dict[str, Any]):
         posture: Optional[Posture] = values.get("posture")
         within: Optional[timedelta] = values.get("within")
@@ -211,20 +198,16 @@ class MetricTriggerQuery(PrefectBaseModel):
             "the query result against the threshold value."
         ),
     )
-    range: timedelta = Field(
+    range: AtLeastFiveMinutesDuration = Field(
         timedelta(seconds=300),  # defaults to 5 minutes
-        minimum=300.0,
-        exclusiveMinimum=False,
         description=(
             "The lookback duration (seconds) for a metric query. This duration is "
             "used to determine the time range over which the query will be executed. "
             "The minimum value is 300 seconds (5 minutes)."
         ),
     )
-    firing_for: timedelta = Field(
+    firing_for: AtLeastFiveMinutesDuration = Field(
         timedelta(seconds=300),  # defaults to 5 minutes
-        minimum=300.0,
-        exclusiveMinimum=False,
         description=(
             "The duration (seconds) for which the metric query must breach "
             "or resolve continuously before the state is updated and the "
@@ -271,7 +254,7 @@ class CompositeTrigger(Trigger, abc.ABC):
 
     type: Literal["compound", "sequence"]
     triggers: List["TriggerTypes"]
-    within: Optional[timedelta]
+    within: Optional[NonNegativeDuration]
 
 
 class CompoundTrigger(CompositeTrigger):
@@ -281,7 +264,6 @@ class CompoundTrigger(CompositeTrigger):
     type: Literal["compound"] = "compound"
     require: Union[int, Literal["any", "all"]]
 
-    @root_validator
     def validate_require(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         require = values.get("require")
 
@@ -342,8 +324,8 @@ TriggerTypes: TypeAlias = Union[
 ]
 """The union of all concrete trigger types that a user may actually create"""
 
-CompoundTrigger.update_forward_refs()
-SequenceTrigger.update_forward_refs()
+CompoundTrigger.model_rebuild()
+SequenceTrigger.model_rebuild()
 
 
 class AutomationCore(PrefectBaseModel, extra="ignore"):

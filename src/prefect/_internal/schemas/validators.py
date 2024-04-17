@@ -6,7 +6,6 @@ format.
 This will be subject to consolidation and refactoring over the next few months.
 """
 
-import datetime
 import json
 import logging
 import re
@@ -46,7 +45,7 @@ if TYPE_CHECKING:
             # TODO: we need to account for rewriting the validator to not use ModelField
             pass
         if not USE_PYDANTIC_V2:
-            from pydantic.v1.fields import ModelField
+            pass
 
 
 def raise_on_name_with_banned_characters(name: str) -> str:
@@ -144,6 +143,12 @@ def validate_values_conform_to_schema(
             "The provided schema is not a valid json schema. Schema error:"
             f" {exc.message}"
         ) from exc
+
+
+def validate_integer_above_or_equal_to_value(value: int, minimum: int) -> int:
+    if value < minimum:
+        raise ValueError(f"Value must be greater than or equal to {minimum}.")
+    return value
 
 
 ### DEPLOYMENT SCHEMA VALIDATORS ###
@@ -478,18 +483,6 @@ def validate_rrule_string(v: str) -> str:
 ### AUTOMATION SCHEMA VALIDATORS ###
 
 
-def validate_trigger_within(
-    value: datetime.timedelta, field: "ModelField"
-) -> datetime.timedelta:
-    """
-    Validate that the `within` field is greater than the minimum value.
-    """
-    minimum = field.field_info.extra["minimum"]
-    if value.total_seconds() < minimum:
-        raise ValueError("The minimum `within` is 0 seconds")
-    return value
-
-
 def validate_automation_names(
     field_value: List["DeploymentTrigger"], values: dict
 ) -> List["DeploymentTrigger"]:
@@ -596,30 +589,10 @@ def set_default_image(values: dict) -> dict:
 ### STATE SCHEMA VALIDATORS ###
 
 
-def get_or_create_state_name(v: str, values: dict) -> str:
+def set_state_name_based_on_type_if_needed(values: dict) -> dict:
     """If a name is not provided, use the type"""
-
-    # if `type` is not in `values` it means the `type` didn't pass its own
-    # validation check and an error will be raised after this function is called
-    if v is None and values.get("type"):
-        v = " ".join([v.capitalize() for v in values.get("type").value.split("_")])
-    return v
-
-
-def set_default_scheduled_time(cls, values: dict) -> dict:
-    """
-    TODO: This should throw an error instead of setting a default but is out of
-            scope for https://github.com/PrefectHQ/orion/pull/174/ and can be rolled
-            into work refactoring state initialization
-    """
-    from prefect.server.schemas.states import StateType
-
-    if values.get("type") == StateType.SCHEDULED:
-        state_details = values.setdefault(
-            "state_details", cls.__fields__["state_details"].get_default()
-        )
-        if not state_details.scheduled_time:
-            state_details.scheduled_time = pendulum.now("utc")
+    if not values.get("name"):
+        values["name"] = values.get("type").title()
     return values
 
 

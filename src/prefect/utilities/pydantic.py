@@ -5,8 +5,8 @@ from jsonpatch import JsonPatch as JsonPatchBase
 from pydantic_core import to_jsonable_python
 from typing_extensions import Self
 
+from prefect._internal.pydantic import HAS_PYDANTIC_V2
 from prefect._internal.pydantic.utilities.model_dump import model_dump
-from prefect.pydantic import HAS_PYDANTIC_V2
 from prefect.utilities.dispatch import get_dispatch_key, lookup_type, register_base_type
 from prefect.utilities.importtools import from_qualified_name, to_qualified_name
 

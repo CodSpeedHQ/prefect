@@ -1,5 +1,6 @@
+import datetime
 from dataclasses import dataclass
-from typing import Any, Callable, ClassVar, Generator
+from typing import Any, Callable, ClassVar, Generator, Optional
 
 from pydantic_core import core_schema, CoreSchema, SchemaValidator
 from typing_extensions import Self
@@ -64,6 +65,26 @@ class NonNegativeDuration(timedelta):
 
 
 @dataclass
+class AtLeastFiveMinutesDuration(datetime.timedelta):
+    schema: ClassVar[CoreSchema] = core_schema.timedelta_schema(
+        ge=datetime.timedelta(minutes=5)
+    )
+
+    @classmethod
+    def __get_validators__(cls) -> Generator[Callable[..., Any], None, None]:
+        yield cls.validate
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source_type: Any, handler: Callable[..., Any]
+    ) -> CoreSchema:
+        return cls.schema
+
+    @classmethod
+    def validate(cls, v: Any) -> Self:
+        return SchemaValidator(schema=cls.schema).validate_python(v)
+
+
 class PositiveDuration(timedelta):
     schema: ClassVar = core_schema.timedelta_schema(gt=timedelta(seconds=0))
 

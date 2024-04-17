@@ -9,6 +9,7 @@ Deprecated items require a start or end date. If a start date is given, the end 
 will be calculated 6 months later. Start and end dates are always in the format MMM YYYY
 e.g. Jan 2023.
 """
+
 import functools
 import sys
 import warnings
@@ -16,15 +17,8 @@ from typing import Any, Callable, Dict, List, Optional, Type, TypeVar, Union
 
 import pendulum
 
-from prefect._internal.pydantic import HAS_PYDANTIC_V2
-
-if HAS_PYDANTIC_V2:
-    from pydantic.v1 import BaseModel, Field, root_validator
-    from pydantic.v1.schema import default_ref_template
-else:
-    from pydantic import BaseModel, Field, root_validator
-    from pydantic.schema import default_ref_template
-
+from prefect._internal.pydantic._types import DEFAULT_REF_TEMPLATE
+from prefect.pydantic import BaseModel, Field, model_validator
 from prefect.utilities.callables import get_call_parameters
 from prefect.utilities.importtools import (
     AliasedModuleDefinition,
@@ -297,7 +291,7 @@ class DeprecatedInfraOverridesField(BaseModel):
         description="Deprecated field. Use `job_variables` instead.",
     )
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
     def _job_variables_from_infra_overrides(
         cls, values: Dict[str, Any]
     ) -> Dict[str, Any]:
@@ -352,7 +346,7 @@ class DeprecatedInfraOverridesField(BaseModel):
 
     @classmethod
     def schema(
-        cls, by_alias: bool = True, ref_template: str = default_ref_template
+        cls, by_alias: bool = True, ref_template: str = DEFAULT_REF_TEMPLATE
     ) -> Dict[str, Any]:
         """
         Don't use the mixin docstring as the description if this class is missing a

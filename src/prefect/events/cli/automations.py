@@ -105,12 +105,12 @@ async def inspect(id_or_name: str, yaml: bool = False, json: bool = False):
 
     if yaml:
         app.console.print(
-            pyyaml.dump(automation.dict(json_compatible=True), sort_keys=False)
+            pyyaml.dump(automation.model_dump(mode="json"), sort_keys=False)
         )
     elif json:
         app.console.print(
             orjson.dumps(
-                automation.dict(json_compatible=True), option=orjson.OPT_INDENT_2
+                automation.model_dump(mode="json"), option=orjson.OPT_INDENT_2
             ).decode()
         )
     else:

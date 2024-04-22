@@ -288,7 +288,6 @@ async def get_runs_in_work_queue(
         return await _legacy_get_runs_in_work_queue(
             session=session,
             work_queue_id=work_queue_id,
-            db=db,
             scheduled_before=scheduled_before,
             limit=limit,
         )

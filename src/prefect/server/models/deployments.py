@@ -219,7 +219,7 @@ async def update_deployment(
         # If just a queue name was provided, ensure the queue exists and
         # get its ID.
         work_queue = await models.work_queues.ensure_work_queue_exists(
-            session=session, name=update_data["work_queue_name"], db=db
+            session=session, name=update_data["work_queue_name"]
         )
         update_data["work_queue_id"] = work_queue.id
 

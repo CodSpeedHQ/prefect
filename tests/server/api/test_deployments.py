@@ -1,4 +1,5 @@
 import datetime
+from typing import List
 from uuid import uuid4
 
 import pendulum
@@ -8,13 +9,38 @@ from prefect._vendor.starlette import status
 
 from prefect.client.schemas.responses import DeploymentResponse
 from prefect.server import models, schemas
+from prefect.server.events.clients import AssertingEventsClient
 from prefect.server.schemas.actions import DeploymentCreate, DeploymentUpdate
 from prefect.server.utilities.database import get_dialect
 from prefect.settings import (
     PREFECT_API_DATABASE_CONNECTION_URL,
     PREFECT_API_SERVICES_SCHEDULER_MAX_SCHEDULED_TIME,
     PREFECT_API_SERVICES_SCHEDULER_MIN_RUNS,
+    PREFECT_EXPERIMENTAL_EVENTS,
+    temporary_settings,
 )
+
+
+@pytest.fixture(autouse=True)
+def events_enabled():
+    with temporary_settings({PREFECT_EXPERIMENTAL_EVENTS: True}):
+        yield
+
+
+def assert_status_events(deployment_name: str, events: List[str]):
+    deployment_specific_events = [
+        event
+        for item in AssertingEventsClient.all
+        for event in item.events
+        if event.resource.name == deployment_name
+    ]
+
+    assert len(events) == len(
+        deployment_specific_events
+    ), f"Expected events {events}, but found {deployment_specific_events}"
+
+    for i, event in enumerate(events):
+        assert event == deployment_specific_events[i].event
 
 
 class TestCreateDeployment:
@@ -1893,6 +1919,8 @@ class TestGetScheduledFlowRuns:
             str(flow_run.id) for flow_run in flow_runs[:2]
         }
 
+        assert_status_events(deployment_1.name, ["prefect.deployment.ready"])
+
     async def test_get_scheduled_runs_for_multiple_deployments(
         self,
         client,
@@ -1908,6 +1936,9 @@ class TestGetScheduledFlowRuns:
         assert {res["id"] for res in response.json()} == {
             str(flow_run.id) for flow_run in flow_runs
         }
+
+        assert_status_events(deployment_1.name, ["prefect.deployment.ready"])
+        assert_status_events(deployment_2.name, ["prefect.deployment.ready"])
 
     async def test_get_scheduled_runs_respects_limit(
         self,

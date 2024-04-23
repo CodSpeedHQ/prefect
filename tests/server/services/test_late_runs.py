@@ -1,3 +1,4 @@
+from typing import TYPE_CHECKING
 from unittest import mock
 from uuid import UUID
 
@@ -6,7 +7,6 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from prefect.server import models, schemas
-from prefect.server.database.orm_models import ORMFlowRun
 from prefect.server.events.clients import AssertingEventsClient
 from prefect.server.services.late_runs import MarkLateRuns
 from prefect.settings import (
@@ -14,6 +14,9 @@ from prefect.settings import (
     PREFECT_EXPERIMENTAL_EVENTS,
     temporary_settings,
 )
+
+if TYPE_CHECKING:
+    from prefect.server.database.orm_models import ORMFlowRun
 
 
 @pytest.fixture(autouse=True)
@@ -228,7 +231,7 @@ async def test_only_scheduled_runs_marked_late(
 
 
 async def test_mark_late_runs_fires_flow_run_state_change_events(
-    late_run: ORMFlowRun, session: AsyncSession
+    late_run: "ORMFlowRun", session: AsyncSession
 ):
     previous_state_id = late_run.state_id
     assert isinstance(previous_state_id, UUID)
@@ -260,7 +263,7 @@ async def test_mark_late_runs_fires_flow_run_state_change_events(
     assert event.follows == previous_state_id
 
 
-async def test_mark_late_runs_ignores_missing_runs(late_run: ORMFlowRun):
+async def test_mark_late_runs_ignores_missing_runs(late_run: "ORMFlowRun"):
     """Regression test for https://github.com/PrefectHQ/nebula/issues/2846"""
     # Simulate another process deleting the flow run in the middle of the service loop
     # Before the fix, this would have raised the ObjectNotFoundError

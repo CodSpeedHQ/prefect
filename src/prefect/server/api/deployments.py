@@ -9,6 +9,7 @@ from uuid import UUID
 import jsonschema.exceptions
 import pendulum
 from prefect._vendor.fastapi import Body, Depends, HTTPException, Path, Response, status
+from prefect._vendor.starlette.background import BackgroundTasks
 
 import prefect.server.api.dependencies as dependencies
 import prefect.server.models as models
@@ -18,6 +19,7 @@ from prefect.server.api.workers import WorkerLookups
 from prefect.server.database.dependencies import provide_database_interface
 from prefect.server.database.interface import PrefectDBInterface
 from prefect.server.exceptions import MissingVariableError, ObjectNotFoundError
+from prefect.server.models.deployments import mark_deployments_ready
 from prefect.server.models.workers import DEFAULT_AGENT_WORK_POOL_NAME
 from prefect.server.utilities.schemas import DateTimeTZ
 from prefect.server.utilities.server import PrefectRouter
@@ -378,6 +380,7 @@ async def read_deployments(
 
 @router.post("/get_scheduled_flow_runs")
 async def get_scheduled_flow_runs_for_deployments(
+    background_tasks: BackgroundTasks,
     deployment_ids: List[UUID] = Body(
         default=..., description="The deployment IDs to get scheduled runs for"
     ),
@@ -415,12 +418,10 @@ async def get_scheduled_flow_runs_for_deployments(
             for orm_flow_run in orm_flow_runs
         ]
 
-    async with db.session_context(
-        begin_transaction=True, with_for_update=True
-    ) as session:
-        await models.deployments._update_deployment_last_polled(
-            session=session, deployment_ids=deployment_ids
-        )
+    background_tasks.add_task(
+        mark_deployments_ready,
+        deployment_ids=deployment_ids,
+    )
 
     return flow_run_responses
 

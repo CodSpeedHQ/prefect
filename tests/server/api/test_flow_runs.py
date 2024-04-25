@@ -8,6 +8,8 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from prefect._internal.pydantic import HAS_PYDANTIC_V2
+from prefect.server.events.clients import AssertingEventsClient
+from prefect.server.events.schemas.events import RelatedResource, Resource
 
 if HAS_PYDANTIC_V2:
     import pydantic.v1 as pydantic
@@ -1388,6 +1390,56 @@ class TestResumeFlowrun:
             "Error hydrating run input: Invalid JSON"
         )
 
+    async def test_resume_flow_run_waiting_for_input_valid_data_sends_event(
+        self,
+        client,
+        flow,
+        paused_flow_run_waiting_for_input,
+        start_of_test: pendulum.DateTime,
+    ):
+        input_key = (
+            paused_flow_run_waiting_for_input.state.state_details.run_input_keyset[
+                "response"
+            ]
+        )
+
+        response = await client.post(
+            f"/flow_runs/{paused_flow_run_waiting_for_input.id}/resume",
+            json={"run_input": {"approved": True}},
+        )
+
+        assert response.status_code == 201
+        assert response.json()["status"] == "ACCEPT"
+
+        assert AssertingEventsClient.last
+        (event,) = AssertingEventsClient.last.events
+
+        assert event.event == "prefect.flow-run-input.created"
+        assert start_of_test <= event.occurred <= pendulum.now("UTC")
+        assert event.resource == Resource.parse_obj(
+            {
+                "prefect.resource.id": f"prefect.flow-run-input.{input_key}",
+                "prefect.resource.name": input_key,
+                "value": orjson.dumps({"approved": True}).decode(),
+            }
+        )
+        assert event.related == [
+            RelatedResource.parse_obj(
+                {
+                    "prefect.resource.id": f"prefect.flow-run.{paused_flow_run_waiting_for_input.id}",
+                    "prefect.resource.role": "flow-run",
+                    "prefect.resource.name": paused_flow_run_waiting_for_input.name,
+                }
+            ),
+            RelatedResource.parse_obj(
+                {
+                    "prefect.resource.id": f"prefect.flow.{flow.id}",
+                    "prefect.resource.role": "flow",
+                    "prefect.resource.name": flow.name,
+                }
+            ),
+        ]
+
 
 class TestSetFlowRunState:
     async def test_set_flow_run_state(self, flow_run, client, session):
@@ -1822,6 +1874,52 @@ class TestFlowRunInput:
         assert flow_run_input.flow_run_id == flow_run.id
         assert flow_run_input.key == "structured-key-1"
         assert flow_run_input.value == "really important stuff"
+
+    async def test_create_flow_run_input_sends_event(
+        self,
+        flow,
+        flow_run,
+        client: AsyncClient,
+        session: AsyncSession,
+        start_of_test: pendulum.DateTime,
+    ):
+        response = await client.post(
+            f"/flow_runs/{flow_run.id}/input",
+            json=dict(
+                key="structured-key-1",
+                value="really important stuff",
+            ),
+        )
+        assert response.status_code == 201
+
+        assert AssertingEventsClient.last
+        (event,) = AssertingEventsClient.last.events
+
+        assert event.event == "prefect.flow-run-input.created"
+        assert start_of_test <= event.occurred <= pendulum.now("UTC")
+        assert event.resource == Resource.parse_obj(
+            {
+                "prefect.resource.id": "prefect.flow-run-input.structured-key-1",
+                "prefect.resource.name": "structured-key-1",
+                "value": "really important stuff",
+            }
+        )
+        assert event.related == [
+            RelatedResource.parse_obj(
+                {
+                    "prefect.resource.id": f"prefect.flow-run.{flow_run.id}",
+                    "prefect.resource.role": "flow-run",
+                    "prefect.resource.name": flow_run.name,
+                }
+            ),
+            RelatedResource.parse_obj(
+                {
+                    "prefect.resource.id": f"prefect.flow.{flow.id}",
+                    "prefect.resource.role": "flow",
+                    "prefect.resource.name": flow.name,
+                }
+            ),
+        ]
 
     async def test_404_non_existent_flow_run(
         self, client: AsyncClient, session: AsyncSession

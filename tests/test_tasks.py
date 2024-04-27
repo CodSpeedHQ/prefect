@@ -48,7 +48,7 @@ def comparable_inputs(d):
 def timeout_test_flow():
     @task(timeout_seconds=0.1)
     def times_out(x):
-        time.sleep(1)
+        time.sleep(2)
         return x
 
     @task

@@ -256,7 +256,9 @@ class Task(Generic[P, R]):
         self.description = description or inspect.getdoc(fn)
         update_wrapper(self, fn)
         self.fn = fn
-        self.isasync = inspect.iscoroutinefunction(self.fn)
+        self.isasync = inspect.iscoroutinefunction(
+            self.fn
+        ) or inspect.isasyncgenfunction(self.fn)
 
         if not name:
             if not hasattr(self.fn, "__name__"):
@@ -326,6 +328,7 @@ class Task(Generic[P, R]):
         self.result_serializer = result_serializer
         self.result_storage_key = result_storage_key
         self.cache_result_in_memory = cache_result_in_memory
+
         self.timeout_seconds = float(timeout_seconds) if timeout_seconds else None
         # Warn if this task's `name` conflicts with another task while having a
         # different function. This is to detect the case where two or more tasks
@@ -586,18 +589,13 @@ class Task(Generic[P, R]):
         # new engine currently only compatible with async tasks
         if PREFECT_EXPERIMENTAL_ENABLE_NEW_ENGINE.value():
             from prefect.new_task_engine import run_task
-            from prefect.utilities.asyncutils import run_sync
 
-            awaitable = run_task(
+            return run_task(
                 task=self,
                 parameters=parameters,
                 wait_for=wait_for,
                 return_type=return_type,
             )
-            if self.isasync:
-                return awaitable
-            else:
-                return run_sync(awaitable)
 
         if (
             PREFECT_EXPERIMENTAL_ENABLE_TASK_SCHEDULING.value()

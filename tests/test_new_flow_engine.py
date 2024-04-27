@@ -8,9 +8,9 @@ from prefect.client.orchestration import PrefectClient
 from prefect.client.schemas.filters import FlowFilter, FlowRunFilter
 from prefect.client.schemas.objects import StateType
 from prefect.client.schemas.sorting import FlowRunSort
-from prefect.context import FlowRunContext
+from prefect.context import FlowRunContext, TaskRunContext
 from prefect.exceptions import ParameterTypeError
-from prefect.new_flow_engine import FlowRunEngine, run_flow
+from prefect.new_flow_engine import FlowRunEngine, run_async_flow, run_sync_flow
 from prefect.settings import PREFECT_EXPERIMENTAL_ENABLE_NEW_ENGINE, temporary_settings
 from prefect.utilities.callables import get_call_parameters
 
@@ -58,7 +58,7 @@ class TestFlowRuns:
         async def foo():
             return 42
 
-        result = await run_flow(foo)
+        result = await run_async_flow(foo)
 
         assert result == 42
 
@@ -68,7 +68,7 @@ class TestFlowRuns:
             return x, y
 
         parameters = get_call_parameters(bar.fn, (42,), dict(y="nate"))
-        result = await run_flow(bar, parameters=parameters)
+        result = await run_async_flow(bar, parameters=parameters)
 
         assert result == (42, "nate")
 
@@ -78,7 +78,7 @@ class TestFlowRuns:
             return x
 
         parameters = get_call_parameters(bar.fn, tuple(), dict(x="42"))
-        result = await run_flow(bar, parameters=parameters)
+        result = await run_async_flow(bar, parameters=parameters)
 
         assert result == 42
 
@@ -88,7 +88,7 @@ class TestFlowRuns:
             return x
 
         parameters = get_call_parameters(bar.fn, tuple(), dict(x="FAIL!"))
-        state = await run_flow(bar, parameters=parameters, return_type="state")
+        state = await run_async_flow(bar, parameters=parameters, return_type="state")
 
         assert state.is_failed()
         with pytest.raises(
@@ -101,7 +101,7 @@ class TestFlowRuns:
         async def foo(x):
             return FlowRunContext.get().flow_run.id
 
-        result = await run_flow(foo, parameters=dict(x="blue"))
+        result = await run_async_flow(foo, parameters=dict(x="blue"))
         run = await prefect_client.read_flow_run(result)
 
         assert run.name == "name is blue"
@@ -113,7 +113,7 @@ class TestFlowRuns:
         async def my_log_flow():
             get_run_logger().critical("hey yall")
 
-        result = await run_flow(my_log_flow)
+        result = await run_async_flow(my_log_flow)
 
         assert result is None
         record = caplog.records[0]
@@ -129,7 +129,7 @@ class TestFlowRuns:
         async def foo():
             return FlowRunContext.get().flow_run.id
 
-        result = await run_flow(foo)
+        result = await run_async_flow(foo)
         run = await prefect_client.read_flow_run(result)
 
         assert run.state_type == StateType.COMPLETED
@@ -144,34 +144,138 @@ class TestFlowRuns:
             raise ValueError("xyz")
 
         with pytest.raises(ValueError, match="xyz"):
-            await run_flow(foo)
+            await run_async_flow(foo)
 
         run = await prefect_client.read_flow_run(ID)
 
         assert run.state_type == StateType.FAILED
 
-    @pytest.mark.skip(reason="Haven't wired up subflows yet")
-    async def test_flow_tracks_nested_parent_as_dependency(self, prefect_client):
+    async def test_subflow_inside_task_tracks_all_parents(
+        self, prefect_client: PrefectClient
+    ):
+        tracker = {}
+
         @flow
-        async def inner():
+        def flow_3():
+            tracker["flow_3"] = FlowRunContext.get().flow_run.id
+
+        @task
+        def task_2():
+            tracker["task_2"] = TaskRunContext.get().task_run.id
+            flow_3()
+
+        @flow
+        def flow_1():
+            task_2()
+
+        flow_1()
+
+        # retrieve the flow 3 subflow run
+        l3 = await prefect_client.read_flow_run(tracker["flow_3"])
+        # retrieve the dummy task for the flow 3 subflow run
+        l3_dummy = await prefect_client.read_task_run(l3.parent_task_run_id)
+
+        # assert the parent of the dummy task is task 2
+        assert l3_dummy.task_inputs["__parents__"][0].id == tracker["task_2"]
+
+
+class TestFlowRunsSync:
+    async def test_basic(self):
+        @flow
+        def foo():
+            return 42
+
+        result = run_sync_flow(foo)
+
+        assert result == 42
+
+    async def test_with_params(self):
+        @flow
+        def bar(x: int, y: str = None):
+            return x, y
+
+        parameters = get_call_parameters(bar.fn, (42,), dict(y="nate"))
+        result = run_sync_flow(bar, parameters=parameters)
+
+        assert result == (42, "nate")
+
+    async def test_with_param_validation(self):
+        @flow
+        def bar(x: int):
+            return x
+
+        parameters = get_call_parameters(bar.fn, tuple(), dict(x="42"))
+        result = run_sync_flow(bar, parameters=parameters)
+
+        assert result == 42
+
+    async def test_with_param_validation_failure(self):
+        @flow
+        def bar(x: int):
+            return x
+
+        parameters = get_call_parameters(bar.fn, tuple(), dict(x="FAIL!"))
+        state = run_sync_flow(bar, parameters=parameters, return_type="state")
+
+        assert state.is_failed()
+        with pytest.raises(
+            ParameterTypeError, match="Flow run received invalid parameters"
+        ):
+            await state.result()
+
+    async def test_flow_run_name(self, prefect_client):
+        @flow(flow_run_name="name is {x}")
+        def foo(x):
             return FlowRunContext.get().flow_run.id
 
+        result = run_sync_flow(foo, parameters=dict(x="blue"))
+        run = await prefect_client.read_flow_run(result)
+
+        assert run.name == "name is blue"
+
+    async def test_get_run_logger(self, caplog):
+        caplog.set_level(logging.CRITICAL)
+
+        @flow(flow_run_name="test-run")
+        def my_log_flow():
+            get_run_logger().critical("hey yall")
+
+        result = run_sync_flow(my_log_flow)
+
+        assert result is None
+        record = caplog.records[0]
+
+        assert record.flow_name == "my-log-flow"
+        assert record.flow_run_name == "test-run"
+        assert UUID(record.flow_run_id)
+        assert record.message == "hey yall"
+        assert record.levelname == "CRITICAL"
+
+    async def test_flow_ends_in_completed(self, prefect_client):
         @flow
-        async def outer():
-            id1 = await inner()
-            return (id1, FlowRunContext.get().flow_run.id)
+        def foo():
+            return FlowRunContext.get().flow_run.id
 
-        a, b = await run_flow(outer)
-        assert a != b
+        result = run_sync_flow(foo)
+        run = await prefect_client.read_flow_run(result)
 
-        # assertions on outer
-        outer_run = await prefect_client.read_flow_run(b)
-        assert outer_run.flow_inputs == {}
+        assert run.state_type == StateType.COMPLETED
 
-        # assertions on inner
-        inner_run = await prefect_client.read_flow_run(a)
-        assert "wait_for" in inner_run.flow_inputs
-        assert inner_run.flow_inputs["wait_for"][0].id == b
+    async def test_flow_ends_in_failed(self, prefect_client):
+        ID = None
+
+        @flow
+        def foo():
+            nonlocal ID
+            ID = FlowRunContext.get().flow_run.id
+            raise ValueError("xyz")
+
+        with pytest.raises(ValueError, match="xyz"):
+            run_sync_flow(foo)
+
+        run = await prefect_client.read_flow_run(ID)
+
+        assert run.state_type == StateType.FAILED
 
 
 class TestFlowRetries:
@@ -187,6 +291,20 @@ class TestFlowRetries:
             return "hello"
 
         assert await foo() == "hello"
+        assert run_count == 2
+
+    async def test_flow_retry_with_error_in_flow_sync(self):
+        run_count = 0
+
+        @flow(retries=1)
+        def foo():
+            nonlocal run_count
+            run_count += 1
+            if run_count == 1:
+                raise ValueError()
+            return "hello"
+
+        assert foo() == "hello"
         assert run_count == 2
 
     async def test_flow_retry_with_error_in_flow_and_successful_task(self):

@@ -7,7 +7,6 @@ Module containing the base workflow task class and decorator - for most use case
 import datetime
 import inspect
 import os
-import warnings
 from copy import copy
 from functools import partial, update_wrapper
 from typing import (
@@ -32,7 +31,7 @@ from typing_extensions import Literal, ParamSpec
 
 from prefect._internal.concurrency.api import create_call, from_async, from_sync
 from prefect.client.schemas import TaskRun
-from prefect.context import FlowRunContext, PrefectObjectRegistry
+from prefect.context import FlowRunContext
 from prefect.futures import PrefectFuture
 from prefect.results import ResultSerializer, ResultStorage
 from prefect.settings import (
@@ -114,7 +113,6 @@ def exponential_backoff(backoff_factor: float) -> Callable[[int], List[float]]:
     return retry_backoff_callable
 
 
-@PrefectObjectRegistry.register_instances
 class Task(Generic[P, R]):
     """
     A Prefect task definition.
@@ -326,33 +324,7 @@ class Task(Generic[P, R]):
         self.result_serializer = result_serializer
         self.result_storage_key = result_storage_key
         self.cache_result_in_memory = cache_result_in_memory
-
         self.timeout_seconds = float(timeout_seconds) if timeout_seconds else None
-        # Warn if this task's `name` conflicts with another task while having a
-        # different function. This is to detect the case where two or more tasks
-        # share a name or are lambdas, which should result in a warning, and to
-        # differentiate it from the case where the task was 'copied' via
-        # `with_options`, which should not result in a warning.
-        registry = PrefectObjectRegistry.get()
-
-        if registry and any(
-            other
-            for other in registry.get_instances(Task)
-            if other.name == self.name and id(other.fn) != id(self.fn)
-        ):
-            try:
-                file = inspect.getsourcefile(self.fn)
-                line_number = inspect.getsourcelines(self.fn)[1]
-            except TypeError:
-                file = "unknown"
-                line_number = "unknown"
-
-            warnings.warn(
-                f"A task named {self.name!r} and defined at '{file}:{line_number}' "
-                "conflicts with another task. Consider specifying a unique `name` "
-                "parameter in the task definition:\n\n "
-                "`@task(name='my_unique_name', ...)`"
-            )
         self.on_completion = on_completion
         self.on_failure = on_failure
 

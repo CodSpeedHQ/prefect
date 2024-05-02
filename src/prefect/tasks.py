@@ -33,8 +33,10 @@ from uuid import uuid4
 from typing_extensions import Literal, ParamSpec
 
 from prefect._internal.concurrency.api import create_call, from_async, from_sync
+from prefect.client.orchestration import PrefectClient
 from prefect.client.schemas import TaskRun
-from prefect.client.schemas.objects import TaskRunInput
+from prefect.client.schemas.objects import TaskRunInput, TaskRunResult
+from prefect.client.utilities import get_or_create_client
 from prefect.context import FlowRunContext, PrefectObjectRegistry, TagsContext
 from prefect.futures import PrefectFuture
 from prefect.logging.loggers import get_logger, get_run_logger
@@ -48,7 +50,7 @@ from prefect.settings import (
 from prefect.states import Pending, State
 from prefect.task_runners import BaseTaskRunner
 from prefect.utilities.annotations import NotSet
-from prefect.utilities.asyncutils import Async, Sync
+from prefect.utilities.asyncutils import Async, Sync, run_sync
 from prefect.utilities.callables import (
     get_call_parameters,
     raise_for_reserved_arguments,
@@ -62,6 +64,7 @@ from prefect.utilities.visualization import (
 )
 
 if TYPE_CHECKING:
+    from prefect.client.orchestration import PrefectClient
     from prefect.context import TaskRunContext
 
 
@@ -539,22 +542,40 @@ class Task(Generic[P, R]):
 
     async def create_run(
         self,
-        flow_run_context: FlowRunContext,
         parameters: Dict[str, Any],
-        wait_for: Optional[Iterable[PrefectFuture]],
+        wait_for: Optional[Iterable[PrefectFuture]] = None,
         extra_task_inputs: Optional[Dict[str, Set[TaskRunInput]]] = None,
+        client: Optional[PrefectClient] = None,
     ) -> TaskRun:
-        # TODO: Investigate if we can replace create_task_run on the task run engine
-        # with this method. Would require updating to work without the flow run context.
+        from prefect.context import TaskRunContext
+        from prefect.utilities.engine import _resolve_custom_task_run_name
+
+        flow_run_context = FlowRunContext.get()
         from prefect.utilities.engine import (
             _dynamic_key_for_task_run,
             collect_task_run_inputs,
         )
 
-        dynamic_key = _dynamic_key_for_task_run(flow_run_context, self)
+        if flow_run_context:
+            dynamic_key = _dynamic_key_for_task_run(flow_run_context, self)
+        else:
+            dynamic_key = uuid4().hex
+
+        try:
+            task_run_name = _resolve_custom_task_run_name(self, parameters)
+        except TypeError:
+            task_run_name = f"{self.name} - {dynamic_key}"
+
+        # prep input tracking
         task_inputs = {
             k: await collect_task_run_inputs(v) for k, v in parameters.items()
         }
+
+        # anticipate nested runs
+        task_run_ctx = TaskRunContext.get()
+        if task_run_ctx:
+            task_inputs["wait_for"] = [TaskRunResult(id=task_run_ctx.task_run.id)]
+
         if wait_for:
             task_inputs["wait_for"] = await collect_task_run_inputs(wait_for)
 
@@ -563,19 +584,24 @@ class Task(Generic[P, R]):
         for k, extras in extra_task_inputs.items():
             task_inputs[k] = task_inputs[k].union(extras)
 
-        flow_run_logger = get_run_logger(flow_run_context)
+        client, _ = get_or_create_client(client)
 
-        task_run = await flow_run_context.client.create_task_run(
+        task_run = await client.create_task_run(
             task=self,
-            name=f"{self.name} - {dynamic_key}",
-            flow_run_id=flow_run_context.flow_run.id,
+            name=task_run_name,
+            flow_run_id=(
+                getattr(flow_run_context.flow_run, "id", None)
+                if flow_run_context and flow_run_context.flow_run
+                else None
+            ),
             dynamic_key=dynamic_key,
             state=Pending(),
             extra_tags=TagsContext.get().current_tags,
             task_inputs=task_inputs,
         )
 
-        if flow_run_context.flow_run:
+        if flow_run_context:
+            flow_run_logger = get_run_logger(flow_run_context)
             flow_run_logger.info(
                 f"Created task run {task_run.name!r} for task {self.name!r}"
             )
@@ -910,8 +936,11 @@ class Task(Generic[P, R]):
                     return_state=return_state,
                 )
             else:
-                raise NotImplementedError(
-                    "Submitting sync tasks with the new engine has not be implemented yet."
+                return self._submit_sync(
+                    parameters=parameters,
+                    flow_run_context=flow_run_context,
+                    wait_for=wait_for,
+                    return_state=return_state,
                 )
 
         else:
@@ -936,7 +965,6 @@ class Task(Generic[P, R]):
         task_runner = flow_run_context.task_runner
 
         task_run = await self.create_run(
-            flow_run_context=flow_run_context,
             parameters=parameters,
             wait_for=wait_for,
         )
@@ -945,7 +973,7 @@ class Task(Generic[P, R]):
             name=task_run.name,
             key=uuid4(),
             task_runner=task_runner,
-            asynchronous=(self.isasync and flow_run_context.flow.isasync),
+            asynchronous=True,
         )
         future.task_run = task_run
         flow_run_context.task_run_futures.append(future)
@@ -966,6 +994,52 @@ class Task(Generic[P, R]):
 
         if return_state:
             return await future.wait()
+        else:
+            return future
+
+    def _submit_sync(
+        self,
+        parameters: Dict[str, Any],
+        flow_run_context: FlowRunContext,
+        wait_for: Optional[Iterable[PrefectFuture]],
+        return_state: bool,
+    ):
+        from prefect.new_task_engine import run_task_sync
+
+        task_runner = flow_run_context.task_runner
+
+        task_run = run_sync(
+            self.create_run(
+                parameters=parameters,
+                wait_for=wait_for,
+            )
+        )
+
+        future = PrefectFuture(
+            name=task_run.name,
+            key=uuid4(),
+            task_runner=task_runner,
+            asynchronous=False,
+        )
+        future.task_run = task_run
+        flow_run_context.task_run_futures.append(future)
+
+        task_runner.submit_sync(
+            key=future.key,
+            call=partial(
+                run_task_sync,
+                task=self,
+                task_run=task_run,
+                parameters=parameters,
+                wait_for=wait_for,
+                return_type="state",
+            ),
+        )
+        if future._submitted:
+            future._submitted.set()
+
+        if return_state:
+            return run_sync(future._wait())
         else:
             return future
 

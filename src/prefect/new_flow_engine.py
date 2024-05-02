@@ -1,6 +1,6 @@
 import asyncio
 import inspect
-from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
+from contextlib import AsyncExitStack, ExitStack, asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from typing import (
     Any,
@@ -39,9 +39,7 @@ from prefect.states import (
 from prefect.utilities.asyncutils import A, Async, run_sync
 from prefect.utilities.callables import parameters_to_args_kwargs
 from prefect.utilities.engine import (
-    _dynamic_key_for_task_run,
     _resolve_custom_flow_run_name,
-    collect_task_run_inputs,
     propose_state,
 )
 
@@ -184,23 +182,9 @@ class FlowRunEngine(Generic[P, R]):
         dummy_task = Task(
             name=self.flow.name, fn=self.flow.fn, version=self.flow.version
         )
-        task_inputs = {
-            k: await collect_task_run_inputs(v)
-            for k, v in (self.parameters or {}).items()
-        }
-        parent_task_run = await client.create_task_run(
-            task=dummy_task,
-            flow_run_id=(
-                context.flow_run.id
-                if getattr(context, "flow_run", None)
-                and isinstance(context.flow_run, FlowRun)
-                else None
-            ),
-            dynamic_key=_dynamic_key_for_task_run(context, dummy_task),  # type: ignore
-            task_inputs=task_inputs,  # type: ignore
-            state=Pending(),
+        return await dummy_task.create_run(
+            parameters=self.parameters, client=self.client
         )
-        return parent_task_run
 
     async def create_flow_run(self, client: PrefectClient) -> FlowRun:
         flow_run_ctx = FlowRunContext.get()
@@ -244,9 +228,6 @@ class FlowRunEngine(Generic[P, R]):
         if not self.flow_run:
             raise ValueError("Flow run not set")
 
-        self.flow_run = await client.read_flow_run(self.flow_run.id)
-        task_runner = self.flow.task_runner.duplicate()
-
         async with AsyncExitStack() as stack:
             task_runner = await stack.enter_async_context(
                 self.flow.task_runner.duplicate().start()
@@ -273,8 +254,6 @@ class FlowRunEngine(Generic[P, R]):
         if not self.flow_run:
             raise ValueError("Flow run not set")
 
-        self.flow_run = run_sync(client.read_flow_run(self.flow_run.id))
-
         # if running in a completely synchronous frame, anyio will not detect the
         # backend to use for the task group
         try:
@@ -282,16 +261,22 @@ class FlowRunEngine(Generic[P, R]):
         except AsyncLibraryNotFoundError:
             task_group = anyio._backends._asyncio.TaskGroup()
 
-        with FlowRunContext(
-            flow=self.flow,
-            log_prints=self.flow.log_prints or False,
-            flow_run=self.flow_run,
-            parameters=self.parameters,
-            client=client,
-            background_tasks=task_group,
-            result_factory=run_sync(ResultFactory.from_flow(self.flow)),
-            task_runner=self.flow.task_runner,
-        ):
+        with ExitStack() as stack:
+            task_runner = stack.enter_context(
+                self.flow.task_runner.duplicate().start_sync()
+            )
+            stack.enter_context(
+                FlowRunContext(
+                    flow=self.flow,
+                    log_prints=self.flow.log_prints or False,
+                    flow_run=self.flow_run,
+                    parameters=self.parameters,
+                    client=client,
+                    background_tasks=task_group,
+                    result_factory=run_sync(ResultFactory.from_flow(self.flow)),
+                    task_runner=task_runner,
+                )
+            )
             self.logger = flow_run_logger(flow_run=self.flow_run, flow=self.flow)
             yield
 

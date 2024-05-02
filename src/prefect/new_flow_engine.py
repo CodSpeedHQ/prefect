@@ -1,6 +1,6 @@
 import asyncio
 import inspect
-from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
+from contextlib import AsyncExitStack, ExitStack, asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from typing import (
     Any,
@@ -28,6 +28,7 @@ from prefect.client.schemas.sorting import FlowRunSort
 from prefect.context import FlowRunContext
 from prefect.futures import PrefectFuture, resolve_futures_to_states
 from prefect.logging.loggers import flow_run_logger
+from prefect.new_task_runners import ConcurrentTaskRunner
 from prefect.results import ResultFactory
 from prefect.states import (
     Pending,
@@ -245,12 +246,9 @@ class FlowRunEngine(Generic[P, R]):
             raise ValueError("Flow run not set")
 
         self.flow_run = await client.read_flow_run(self.flow_run.id)
-        task_runner = self.flow.task_runner.duplicate()
 
         async with AsyncExitStack() as stack:
-            task_runner = await stack.enter_async_context(
-                self.flow.task_runner.duplicate().start()
-            )
+            task_runner = stack.enter_context(ConcurrentTaskRunner())
             stack.enter_context(
                 FlowRunContext(
                     flow=self.flow,
@@ -282,16 +280,20 @@ class FlowRunEngine(Generic[P, R]):
         except AsyncLibraryNotFoundError:
             task_group = anyio._backends._asyncio.TaskGroup()
 
-        with FlowRunContext(
-            flow=self.flow,
-            log_prints=self.flow.log_prints or False,
-            flow_run=self.flow_run,
-            parameters=self.parameters,
-            client=client,
-            background_tasks=task_group,
-            result_factory=run_sync(ResultFactory.from_flow(self.flow)),
-            task_runner=self.flow.task_runner,
-        ):
+        with ExitStack() as stack:
+            task_runner = stack.enter_context(ConcurrentTaskRunner())
+            stack.enter_context(
+                FlowRunContext(
+                    flow=self.flow,
+                    log_prints=self.flow.log_prints or False,
+                    flow_run=self.flow_run,
+                    parameters=self.parameters,
+                    client=client,
+                    background_tasks=task_group,
+                    result_factory=run_sync(ResultFactory.from_flow(self.flow)),
+                    task_runner=task_runner,
+                )
+            )
             self.logger = flow_run_logger(flow_run=self.flow_run, flow=self.flow)
             yield
 

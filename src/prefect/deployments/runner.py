@@ -31,10 +31,11 @@ Example:
 
 import enum
 import importlib
+import sys
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, TextIO, Union
 from uuid import UUID
 
 import pendulum
@@ -850,6 +851,7 @@ async def deploy(
     work_pool_name: Optional[str] = None,
     image: Optional[Union[str, DeploymentImage]] = None,
     build: bool = True,
+    build_logs_sink: Optional[TextIO] = sys.stdout,
     push: bool = True,
     print_next_steps_message: bool = True,
     ignore_warnings: bool = False,
@@ -874,6 +876,8 @@ async def deploy(
             and build arguments.
         build: Whether or not to build a new image for the flow. If False, the provided
             image will be used as-is and pulled at runtime.
+        build_logs_sink: A file-like object to write build logs to. Ignored if `image` is
+            a `DeploymentImage` instance with `stream_progress_to` set.
         push: Whether or not to skip pushing the built image to a registry.
         print_next_steps_message: Whether or not to print a message with next steps
             after deploying the deployments.
@@ -970,19 +974,30 @@ async def deploy(
         push = False
 
     if image and build:
-        with Progress(
-            SpinnerColumn(),
-            TextColumn(f"Building image {image.reference}..."),
-            transient=True,
-            console=console,
-        ) as progress:
-            docker_build_task = progress.add_task("docker_build", total=1)
+        if build_logs_sink or image.build_kwargs["stream_progress_to"]:
+            image.build_kwargs["stream_progress_to"] = image.build_kwargs.get(
+                "stream_progress_to", build_logs_sink
+            )
+            console.print(f"Building image {image.reference}...", highlight=False)
             image.build()
-
-            progress.update(docker_build_task, completed=1)
             console.print(
                 f"Successfully built image {image.reference!r}", style="green"
             )
+
+        else:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn(f"Building image {image.reference}..."),
+                transient=True,
+                console=console,
+            ) as progress:
+                docker_build_task = progress.add_task("docker_build", total=1)
+                image.build()
+
+                progress.update(docker_build_task, completed=1)
+                console.print(
+                    f"Successfully built image {image.reference!r}", style="green"
+                )
 
     if image and build and push:
         with Progress(

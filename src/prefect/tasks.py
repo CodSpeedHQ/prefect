@@ -51,7 +51,6 @@ from prefect.settings import (
     PREFECT_TASK_DEFAULT_RETRY_DELAY_SECONDS,
 )
 from prefect.states import Pending, State
-from prefect.task_runners import BaseTaskRunner
 from prefect.utilities.annotations import NotSet
 from prefect.utilities.asyncutils import Async, Sync
 from prefect.utilities.callables import (
@@ -519,7 +518,7 @@ class Task(Generic[P, R]):
     async def create_run(
         self,
         client: Optional[Union[PrefectClient, SyncPrefectClient]],
-        parameters: Dict[str, Any] = None,
+        parameters: Optional[Dict[str, Any]] = None,
         flow_run_context: Optional[FlowRunContext] = None,
         parent_task_run_context: Optional[TaskRunContext] = None,
         wait_for: Optional[Iterable[PrefectFuture]] = None,
@@ -907,18 +906,6 @@ class Task(Generic[P, R]):
                 "`task.submit()` is not currently supported by `flow.visualize()`"
             )
 
-        if PREFECT_EXPERIMENTAL_ENABLE_TASK_SCHEDULING and not flow_run_context:
-            create_autonomous_task_run_call = create_call(
-                create_autonomous_task_run, task=self, parameters=parameters
-            )
-            if self.isasync:
-                return from_async.wait_for_call_in_loop_thread(
-                    create_autonomous_task_run_call
-                )
-            else:
-                return from_sync.wait_for_call_in_loop_thread(
-                    create_autonomous_task_run_call
-                )
         if PREFECT_EXPERIMENTAL_ENABLE_NEW_ENGINE and flow_run_context:
             if self.isasync:
                 return self._submit_async(
@@ -932,6 +919,18 @@ class Task(Generic[P, R]):
                     "Submitting sync tasks with the new engine has not be implemented yet."
                 )
 
+        elif PREFECT_EXPERIMENTAL_ENABLE_TASK_SCHEDULING and not flow_run_context:
+            create_autonomous_task_run_call = create_call(
+                create_autonomous_task_run, task=self, parameters=parameters
+            )
+            if self.isasync:
+                return from_async.wait_for_call_in_loop_thread(
+                    create_autonomous_task_run_call
+                )
+            else:
+                return from_sync.wait_for_call_in_loop_thread(
+                    create_autonomous_task_run_call
+                )
         else:
             return enter_task_run_engine(
                 self,
@@ -1184,7 +1183,7 @@ class Task(Generic[P, R]):
             mapped=True,
         )
 
-    def serve(self, task_runner: Optional[BaseTaskRunner] = None) -> "Task":
+    def serve(self) -> "Task":
         """Serve the task using the provided task runner. This method is used to
         establish a websocket connection with the Prefect server and listen for
         submitted task runs to execute.
@@ -1210,7 +1209,7 @@ class Task(Generic[P, R]):
 
         from prefect.task_server import serve
 
-        serve(self, task_runner=task_runner)
+        serve(self)
 
 
 @overload

@@ -23,13 +23,9 @@ from typing import (
 
 import anyio
 import httpx
+import prefect
 from asgi_lifespan import LifespanManager
 from httpx import HTTPStatusError, Request, Response
-from prefect._vendor.starlette import status
-from prefect._vendor.starlette.testclient import TestClient
-from typing_extensions import Self
-
-import prefect
 from prefect.client import constants
 from prefect.client.schemas.objects import CsrfToken
 from prefect.exceptions import PrefectHTTPStatusError
@@ -40,6 +36,9 @@ from prefect.settings import (
     PREFECT_CLIENT_RETRY_JITTER_FACTOR,
 )
 from prefect.utilities.math import bounded_poisson_interval, clamped_poisson_interval
+from starlette import status
+from starlette.testclient import TestClient
+from typing_extensions import Self
 
 # Datastores for lifespan management, keys should be a tuple of thread and app
 # identities.

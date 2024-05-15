@@ -16,10 +16,8 @@ from unittest.mock import MagicMock
 
 import anyio
 import pendulum
-import pytest
-from prefect._vendor.starlette import status
-
 import prefect.runner
+import pytest
 from prefect import flow, serve, task
 from prefect.client.orchestration import PrefectClient
 from prefect.client.schemas.objects import MinimalDeploymentSchedule, StateType
@@ -45,6 +43,7 @@ from prefect.settings import (
 )
 from prefect.testing.utilities import AsyncMock
 from prefect.utilities.dockerutils import parse_image_tag
+from starlette import status
 
 
 @flow(version="test")

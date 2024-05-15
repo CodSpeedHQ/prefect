@@ -1,6 +1,5 @@
-from prefect._vendor.starlette import status
-
 from prefect.testing.utilities import AsyncMock
+from starlette import status
 
 
 async def test_hello_world(client):

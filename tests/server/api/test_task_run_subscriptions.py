@@ -6,11 +6,8 @@ from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
-from prefect._vendor.fastapi import FastAPI
-from prefect._vendor.starlette.testclient import TestClient, WebSocketTestSession
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from prefect.client.schemas import TaskRun
+from prefect.fastapi import FastAPI
 from prefect.server import models
 from prefect.server.api import task_runs
 from prefect.settings import (
@@ -18,6 +15,8 @@ from prefect.settings import (
     temporary_settings,
 )
 from prefect.states import Scheduled
+from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.testclient import TestClient, WebSocketTestSession
 
 
 @pytest.fixture

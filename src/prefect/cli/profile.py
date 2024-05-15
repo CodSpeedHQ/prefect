@@ -7,13 +7,9 @@ import textwrap
 from typing import Optional
 
 import httpx
-import typer
-from prefect._vendor.starlette import status
-from rich.progress import Progress, SpinnerColumn, TextColumn
-from rich.table import Table
-
 import prefect.context
 import prefect.settings
+import typer
 from prefect.cli._types import PrefectTyper
 from prefect.cli._utilities import exit_with_error, exit_with_success
 from prefect.cli.cloud import CloudUnauthorizedError, get_cloud_client
@@ -21,6 +17,9 @@ from prefect.cli.root import app
 from prefect.client.orchestration import ServerType, get_client
 from prefect.context import use_profile
 from prefect.utilities.collections import AutoEnum
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.table import Table
+from starlette import status
 
 profile_app = PrefectTyper(
     name="profile", help="Commands for interacting with your Prefect profiles."

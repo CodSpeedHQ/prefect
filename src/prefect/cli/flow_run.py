@@ -10,10 +10,6 @@ from uuid import UUID
 import httpx
 import pendulum
 import typer
-from prefect._vendor.starlette import status
-from rich.pretty import Pretty
-from rich.table import Table
-
 from prefect.cli._types import PrefectTyper
 from prefect.cli._utilities import exit_with_error, exit_with_success
 from prefect.cli.root import app
@@ -26,6 +22,9 @@ from prefect.exceptions import ObjectNotFound
 from prefect.logging import get_logger
 from prefect.runner import Runner
 from prefect.states import State
+from rich.pretty import Pretty
+from rich.table import Table
+from starlette import status
 
 flow_run_app = PrefectTyper(
     name="flow-run", help="Commands for interacting with flow runs."

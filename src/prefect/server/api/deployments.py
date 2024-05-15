@@ -8,12 +8,10 @@ from uuid import UUID
 
 import jsonschema.exceptions
 import pendulum
-from prefect._vendor.fastapi import Body, Depends, HTTPException, Path, Response, status
-from prefect._vendor.starlette.background import BackgroundTasks
-
 import prefect.server.api.dependencies as dependencies
 import prefect.server.models as models
 import prefect.server.schemas as schemas
+from prefect.fastapi import Body, Depends, HTTPException, Path, Response, status
 from prefect.server.api.validation import (
     validate_job_variables_for_deployment,
     validate_job_variables_for_deployment_flow_run,
@@ -36,6 +34,7 @@ from prefect.utilities.schema_tools.validation import (
     ValidationError,
     validate,
 )
+from starlette.background import BackgroundTasks
 
 router = PrefectRouter(prefix="/deployments", tags=["Deployments"])
 

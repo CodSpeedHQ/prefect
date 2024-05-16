@@ -286,6 +286,10 @@ class KubernetesJob(Infrastructure):
         return KubernetesJobResult(identifier=pid, status_code=status_code)
 
     async def kill(self, infrastructure_pid: str, grace_seconds: int = 30):
+        # We import this here to preserve the laziness of the kubernetes import at the
+        # module level.
+        from kubernetes.client.exceptions import ApiException
+
         self._configure_kubernetes_library_client()
         job_cluster_uid, job_namespace, job_name = self._parse_infrastructure_pid(
             infrastructure_pid
@@ -316,7 +320,7 @@ class KubernetesJob(Infrastructure):
                     # See: https://kubernetes.io/docs/concepts/architecture/garbage-collection/#foreground-deletion
                     propagation_policy="Foreground",
                 )
-            except kubernetes.client.exceptions.ApiException as exc:
+            except ApiException as exc:
                 if exc.status == 404:
                     raise InfrastructureNotFound(
                         f"Unable to kill job {job_name!r}: The job was not found."
@@ -592,10 +596,12 @@ class KubernetesJob(Infrastructure):
         return JsonPatch(shortcuts)
 
     def _get_job(self, job_id: str) -> Optional["V1Job"]:
+        from kubernetes.client.exceptions import ApiException
+
         with self.get_batch_client() as batch_client:
             try:
                 job = batch_client.read_namespaced_job(job_id, self.namespace)
-            except kubernetes.client.exceptions.ApiException:
+            except ApiException:
                 self.logger.error(f"Job {job_id!r} was removed.", exc_info=True)
                 return None
             return job

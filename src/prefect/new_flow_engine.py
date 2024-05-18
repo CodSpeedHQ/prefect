@@ -5,6 +5,7 @@ import time
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from typing import (
+    TYPE_CHECKING,
     Any,
     Callable,
     Coroutine,
@@ -26,7 +27,6 @@ from sniffio import AsyncLibraryNotFoundError
 from typing_extensions import ParamSpec
 
 from prefect import Task, get_client
-from prefect.client.orchestration import SyncPrefectClient
 from prefect.client.schemas import FlowRun, TaskRun
 from prefect.client.schemas.filters import FlowRunFilter
 from prefect.client.schemas.sorting import FlowRunSort
@@ -59,6 +59,10 @@ from prefect.utilities.engine import (
     propose_state_sync,
 )
 
+if TYPE_CHECKING:
+    from prefect.client.orchestration import SyncPrefectClient
+
+
 P = ParamSpec("P")
 R = TypeVar("R")
 
@@ -86,7 +90,7 @@ class FlowRunEngine(Generic[P, R]):
     flow_run_id: Optional[UUID] = None
     logger: logging.Logger = field(default_factory=lambda: get_logger("engine"))
     _is_started: bool = False
-    _client: Optional[SyncPrefectClient] = None
+    _client: Optional["SyncPrefectClient"] = None
     short_circuit: bool = False
 
     def __post_init__(self):
@@ -97,7 +101,7 @@ class FlowRunEngine(Generic[P, R]):
             self.parameters = {}
 
     @property
-    def client(self) -> SyncPrefectClient:
+    def client(self) -> "SyncPrefectClient":
         if not self._is_started or self._client is None:
             raise RuntimeError("Engine has not started.")
         return self._client
@@ -187,7 +191,7 @@ class FlowRunEngine(Generic[P, R]):
     def load_subflow_run(
         self,
         parent_task_run: TaskRun,
-        client: SyncPrefectClient,
+        client: "SyncPrefectClient",
         context: FlowRunContext,
     ) -> Union[FlowRun, None]:
         """
@@ -231,7 +235,7 @@ class FlowRunEngine(Generic[P, R]):
             if flow_runs:
                 return flow_runs[-1]
 
-    def create_flow_run(self, client: SyncPrefectClient) -> FlowRun:
+    def create_flow_run(self, client: "SyncPrefectClient") -> FlowRun:
         flow_run_ctx = FlowRunContext.get()
         parameters = self.parameters or {}
 
@@ -337,7 +341,7 @@ class FlowRunEngine(Generic[P, R]):
             yield _hook_fn
 
     @contextmanager
-    def enter_run_context(self, client: Optional[SyncPrefectClient] = None):
+    def enter_run_context(self, client: Optional["SyncPrefectClient"] = None):
         if client is None:
             client = self.client
         if not self.flow_run:

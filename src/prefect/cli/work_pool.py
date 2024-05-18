@@ -19,10 +19,6 @@ from prefect.cli.root import app, is_interactive
 from prefect.client.collections import get_collections_metadata_client
 from prefect.client.schemas.actions import WorkPoolCreate, WorkPoolUpdate
 from prefect.exceptions import ObjectAlreadyExists, ObjectNotFound
-from prefect.infrastructure.provisioners import (
-    _provisioners,
-    get_infrastructure_provisioner_for_work_pool_type,
-)
 from prefect.settings import update_current_profile
 from prefect.workers.utilities import (
     get_available_work_pool_types,
@@ -59,6 +55,8 @@ def has_provisioner_for_type(work_pool_type: str) -> bool:
     Returns:
         bool: True if a provisioner exists for the given type, False otherwise.
     """
+    from prefect.infrastructure.provisioners import _provisioners
+
     return work_pool_type in _provisioners
 
 
@@ -174,6 +172,10 @@ async def create(
             template_contents = json.load(base_job_template)
 
         if provision_infrastructure:
+            from prefect.infrastructure.provisioners import (
+                get_infrastructure_provisioner_for_work_pool_type,
+            )
+
             try:
                 provisioner = get_infrastructure_provisioner_for_work_pool_type(type)
                 provisioner.console = app.console
@@ -429,6 +431,10 @@ async def provision_infrastructure(
             exit_with_error(f"Failed to read work pool {name!r}: {exc}")
 
         try:
+            from prefect.infrastructure.provisioners import (
+                get_infrastructure_provisioner_for_work_pool_type,
+            )
+
             provisioner = get_infrastructure_provisioner_for_work_pool_type(
                 work_pool.type
             )

@@ -6,26 +6,26 @@ To get started, follow along with [the deloyments tutorial](/tutorials/deploymen
 """
 
 import ast
-import asyncio
 import math
 import os
 import subprocess
 import sys
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Dict, List, Optional, cast
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
 
 import anyio
 import yaml
-from ruamel.yaml import YAML
 
-from prefect.client.schemas.objects import MinimalDeploymentSchedule
-from prefect.client.schemas.schedules import IntervalSchedule
 from prefect.logging import get_logger
 from prefect.settings import PREFECT_DEBUG_MODE
 from prefect.utilities.asyncutils import LazySemaphore
 from prefect.utilities.filesystem import create_default_ignore_file, get_open_file_limit
 from prefect.utilities.templating import apply_values
+
+if TYPE_CHECKING:
+    from prefect.client.schemas.objects import MinimalDeploymentSchedule
+    from prefect.client.schemas.schedules import IntervalSchedule
 
 
 def create_default_prefect_yaml(
@@ -129,6 +129,7 @@ def configure_project_by_recipe(recipe: str, **formatting_kwargs) -> dict:
     Raises:
         ValueError: if provided recipe name does not exist.
     """
+
     # load the recipe
     recipe_path = Path(__file__).parent / "recipes" / recipe / "prefect.yaml"
 
@@ -248,6 +249,8 @@ def _format_deployment_for_saving_to_prefect_file(
     Returns:
         - deployment (Dict): a dictionary containing a templated deployment configuration
     """
+    from prefect.client.schemas.schedules import IntervalSchedule
+
     if not deployment:
         raise ValueError("Deployment must be a non-empty dictionary.")
     deployment = deepcopy(deployment)
@@ -268,7 +271,7 @@ def _format_deployment_for_saving_to_prefect_file(
     if deployment.get("schedules"):
         schedules = []
         for deployment_schedule in cast(
-            List[MinimalDeploymentSchedule], deployment["schedules"]
+            List["MinimalDeploymentSchedule"], deployment["schedules"]
         ):
             if isinstance(deployment_schedule.schedule, IntervalSchedule):
                 schedule_config = _interval_schedule_to_dict(
@@ -287,7 +290,7 @@ def _format_deployment_for_saving_to_prefect_file(
     return deployment
 
 
-def _interval_schedule_to_dict(schedule: IntervalSchedule) -> Dict:
+def _interval_schedule_to_dict(schedule: "IntervalSchedule") -> Dict:
     """
     Converts an IntervalSchedule to a dictionary.
 
@@ -321,6 +324,8 @@ def _save_deployment_to_prefect_file(
     Args:
         - deployment: a dictionary containing a deployment configuration
     """
+    from ruamel.yaml import YAML
+
     deployment = _format_deployment_for_saving_to_prefect_file(deployment)
 
     current_directory_name = os.path.basename(os.getcwd())
@@ -460,6 +465,8 @@ async def _search_for_flow_functions(directory: str = ".") -> List[Dict]:
     Returns:
         List[Dict]: the flow name, function name, and filepath of all flow functions found
     """
+    import asyncio
+
     path = anyio.Path(directory)
     coros = []
     async for file in path.rglob("*.py"):

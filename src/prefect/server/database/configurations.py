@@ -203,6 +203,8 @@ class AsyncPostgresConfiguration(BaseDatabaseConfiguration):
             if self.connection_timeout is not None:
                 connect_args["timeout"] = self.connection_timeout
 
+            connect_args["statement_cache_size"] = 0
+
             if connect_args:
                 connect_args["server_settings"] = {"jit": "off"}
                 kwargs["connect_args"] = connect_args

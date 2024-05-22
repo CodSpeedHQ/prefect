@@ -261,3 +261,68 @@ async def pip_install_requirements(
         "stdout": stdout_sink.getvalue().strip(),
         "stderr": stderr_sink.getvalue().strip(),
     }
+
+
+async def pip_install_pyproject(
+    directory: Optional[str] = None,
+    stream_output: bool = True,
+):
+    """
+    Installs dependencies from a pyproject.toml file.
+    Note: pyproject.toml file must be in the directory specified or in the current working directory.
+
+    Args:
+        directory: The directory the pyproject.toml file is in. Defaults to
+            the current working directory.
+        stream_output: Whether to stream the output from pip install should be
+            streamed to the console
+
+    Returns:
+        A dictionary with the keys `stdout` and `stderr` containing the output
+            the `pip install` command
+
+    Raises:
+        subprocess.CalledProcessError: if the pip install command fails for any reason
+
+    Example:
+        ```yaml
+        pull:
+            - prefect.deployments.steps.git_clone:
+                id: clone-step
+                repository: https://github.com/org/repo.git
+            - prefect.deployments.steps.pip_install_pyproject:
+                directory: {{ clone-step.directory }}
+                stream_output: False
+        ```
+    """
+    stdout_sink = io.StringIO()
+    stderr_sink = io.StringIO()
+
+    if directory is None:
+        directory = os.getcwd()
+    else:
+        directory = os.path.abspath(directory)
+
+    async with open_process(
+        [get_sys_executable(), "-m", "pip", "install", directory],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    ) as process:
+        await _stream_capture_process_output(
+            process,
+            stdout_sink=stdout_sink,
+            stderr_sink=stderr_sink,
+            stream_output=stream_output,
+        )
+        await process.wait()
+
+        if process.returncode != 0:
+            raise RuntimeError(
+                f"pip_install_pyproject failed with error code {process.returncode}:"
+                f" {stderr_sink.getvalue()}"
+            )
+
+    return {
+        "stdout": stdout_sink.getvalue().strip(),
+        "stderr": stderr_sink.getvalue().strip(),
+    }

@@ -1,3 +1,4 @@
+import os
 import shutil
 import subprocess
 import sys
@@ -887,4 +888,86 @@ class TestPullWithBlock:
             "Unable to create storage adapter for block"
             f" '{block.get_block_type_slug()}/{block._block_document_name}"
             in caplog.text
+        )
+
+
+class TestPipInstallPyproject:
+    async def test_pip_install_pyproject_reqs_runs_expected_command(self, monkeypatch):
+        open_process_mock = MagicMock(return_value=MockProcess(0))
+        monkeypatch.setattr(
+            "prefect.deployments.steps.utility.open_process",
+            open_process_mock,
+        )
+
+        mock_stream_capture = AsyncMock()
+
+        monkeypatch.setattr(
+            "prefect.deployments.steps.utility._stream_capture_process_output",
+            mock_stream_capture,
+        )
+
+        await run_step(
+            {
+                "prefect.deployments.steps.pip_install_pyproject": {
+                    "id": "pip-install-step"
+                }
+            }
+        )
+
+        open_process_mock.assert_called_once_with(
+            [sys.executable, "-m", "pip", "install", os.getcwd()],
+            stderr=ANY,
+            stdout=ANY,
+        )
+
+    async def test_pip_install_pyproject_reqs_with_directory_step_output_succeeds(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ):
+        open_process_mock = MagicMock(return_value=MockProcess(0))
+        monkeypatch.setattr(
+            "prefect.deployments.steps.utility.open_process",
+            open_process_mock,
+        )
+
+        mock_stream_capture = AsyncMock()
+
+        monkeypatch.setattr(
+            "prefect.deployments.steps.utility._stream_capture_process_output",
+            mock_stream_capture,
+        )
+
+        steps = [
+            {
+                "prefect.deployments.steps.git_clone": {
+                    "id": "clone-step",
+                    "repository": "https://github.com/PrefectHQ/hello-projects.git",
+                }
+            },
+            {
+                "prefect.deployments.steps.pip_install_pyproject": {
+                    "id": "pip-install-step",
+                    "directory": "{{ clone-step.directory }}",
+                }
+            },
+        ]
+
+        step_outputs = {
+            "clone-step": {"directory": "hello-projects"},
+            "directory": "hello-projects",
+            "pip-install-step": {"stdout": "", "stderr": ""},
+            "stdout": "",
+            "stderr": "",
+        }
+
+        open_process_mock.run.return_value = MagicMock(**step_outputs)
+
+        with tmpchdir(tmp_path):
+            output = await run_steps(steps)
+
+        assert output == step_outputs
+
+        open_process_mock.assert_called_once_with(
+            [sys.executable, "-m", "pip", "install", str(tmp_path) + "/hello-projects"],
+            stderr=ANY,
+            stdout=ANY,
         )

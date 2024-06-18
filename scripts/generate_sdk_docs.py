@@ -43,6 +43,11 @@ def main():
         # break
 
 
+# must be run from top level of the repository
+# outputs to docs/sdk/prefect
+# creates a Markdown file for prefect
+
+
 def packages() -> Generator[tuple[str, Path], None, None]:
     yield "prefect", Path("./src")
 

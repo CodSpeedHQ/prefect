@@ -1020,6 +1020,7 @@ class Flow(Generic[P, R]):
         entrypoint_type: EntrypointType = EntrypointType.FILE_PATH,
         print_next_steps: bool = True,
         ignore_warnings: bool = False,
+        stream_docker_build_progress_to_stdout: bool = True,
     ) -> UUID:
         """
         Deploys a flow to run on dynamic infrastructure via a work pool.
@@ -1075,6 +1076,8 @@ class Flow(Generic[P, R]):
             print_next_steps_message: Whether or not to print a message with next steps
                 after deploying the deployments.
             ignore_warnings: Whether or not to ignore warnings about the work pool type.
+            stream_docker_build_progress_to_stdout: Whether or not to stream `docker build`
+                progress to stdout.
 
         Returns:
             The ID of the created/updated deployment.
@@ -1152,6 +1155,7 @@ class Flow(Generic[P, R]):
             push=push,
             print_next_steps_message=False,
             ignore_warnings=ignore_warnings,
+            stream_docker_build_progress_to_stdout=stream_docker_build_progress_to_stdout,
         )
 
         if print_next_steps:

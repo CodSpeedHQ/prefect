@@ -31,8 +31,7 @@ from prefect.client.schemas.schedules import (
     IntervalSchedule,
     RRuleSchedule,
 )
-from prefect.context import PrefectObjectRegistry
-from prefect.deployments.runner import DeploymentImage, RunnerDeployment
+from prefect.deployments.runner import DeploymentImage, EntrypointType, RunnerDeployment
 from prefect.events import DeploymentEventTrigger, Posture
 from prefect.exceptions import (
     CancelledRun,
@@ -71,7 +70,6 @@ from prefect.testing.utilities import (
     get_most_recent_flow_run,
 )
 from prefect.transactions import transaction
-from prefect.types.entrypoint import EntrypointType
 from prefect.utilities.annotations import allow_failure, quote
 from prefect.utilities.callables import parameter_schema
 from prefect.utilities.collections import flatdict_to_dict
@@ -740,16 +738,6 @@ class TestFlowCall:
 
         with pytest.raises(ValueError, match="Test 2"):
             await second.result()
-
-    @pytest.mark.skip(reason="Fails with new engine, passed on old engine")
-    async def test_call_execution_blocked_does_not_run_flow(self):
-        @flow(version="test")
-        def foo(x, y=3, z=3):
-            return x + y + z
-
-        with PrefectObjectRegistry(block_code_execution=True):
-            state = foo(1, 2)
-            assert state is None
 
     def test_flow_can_end_in_paused_state(self):
         @flow
@@ -2507,44 +2495,6 @@ def test_load_flow_from_entrypoint_with_module_path(monkeypatch):
 
     assert result == pretend_flow
     import_object_mock.assert_called_with("my.module.pretend_flow")
-
-
-@pytest.mark.skip(reason="Fails with new engine, passed on old engine")
-async def test_handling_script_with_unprotected_call_in_flow_script(
-    tmp_path,
-    caplog,
-    prefect_client,
-):
-    flow_code_with_call = """
-    from prefect import flow
-from prefect.logging import get_run_logger
-
-    @flow
-    def dog():
-        get_run_logger().warning("meow!")
-        return "woof!"
-
-    dog()
-    """
-    fpath = tmp_path / "f.py"
-    fpath.write_text(dedent(flow_code_with_call))
-    with caplog.at_level("WARNING"):
-        flow = load_flow_from_entrypoint(f"{fpath}:dog")
-
-        # Make sure that warning is raised
-        assert (
-            "Script loading is in progress, flow 'dog' will not be executed. "
-            "Consider updating the script to only call the flow" in caplog.text
-        )
-
-    flow_runs = await prefect_client.read_flows()
-    assert len(flow_runs) == 0
-
-    # Make sure that flow runs when called
-    res = flow()
-    assert res == "woof!"
-    flow_runs = await prefect_client.read_flows()
-    assert len(flow_runs) == 1
 
 
 class TestFlowRunName:

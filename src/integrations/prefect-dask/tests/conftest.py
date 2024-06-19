@@ -18,13 +18,8 @@ def prefect_db():
 
 
 @pytest.fixture(autouse=True)
-def reset_object_registry():
-    """
-    Ensures each test has a clean object registry.
-    """
-    from prefect.context import PrefectObjectRegistry
-
-    with PrefectObjectRegistry():
+def fetch_state_result():
+    with temporary_settings(updates={PREFECT_ASYNC_FETCH_STATE_RESULT: True}):
         yield
 
 
@@ -57,9 +52,3 @@ def event_loop(request):
     # Workaround for failures in pytest_asyncio 0.17;
     # see https://github.com/pytest-dev/pytest-asyncio/issues/257
     policy.set_event_loop(loop)
-
-
-@pytest.fixture(autouse=True)
-def fetch_state_result():
-    with temporary_settings(updates={PREFECT_ASYNC_FETCH_STATE_RESULT: True}):
-        yield

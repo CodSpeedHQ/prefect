@@ -17,11 +17,9 @@ import warnings
 from copy import copy
 from functools import partial, update_wrapper
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 from typing import (
     TYPE_CHECKING,
     Any,
-    AnyStr,
     Awaitable,
     Callable,
     Coroutine,
@@ -56,8 +54,7 @@ from prefect.client.schemas.objects import Flow as FlowSchema
 from prefect.client.schemas.objects import FlowRun
 from prefect.client.schemas.schedules import SCHEDULE_TYPES
 from prefect.client.utilities import client_injector
-from prefect.context import PrefectObjectRegistry, registry_from_script
-from prefect.deployments.runner import DeploymentImage, deploy
+from prefect.deployments.runner import DeploymentImage, EntrypointType, deploy
 from prefect.deployments.steps.core import run_steps
 from prefect.events import DeploymentTriggerTypes, TriggerTypes
 from prefect.exceptions import (
@@ -65,7 +62,6 @@ from prefect.exceptions import (
     MissingFlowError,
     ObjectNotFound,
     ParameterTypeError,
-    UnspecifiedFlowError,
 )
 from prefect.filesystems import LocalFileSystem, ReadableDeploymentStorage
 from prefect.futures import PrefectFuture
@@ -87,7 +83,6 @@ from prefect.settings import (
 from prefect.states import State
 from prefect.task_runners import TaskRunner, ThreadPoolTaskRunner
 from prefect.types import BANNED_CHARACTERS, WITHOUT_BANNED_CHARACTERS
-from prefect.types.entrypoint import EntrypointType
 from prefect.utilities.annotations import NotSet
 from prefect.utilities.asyncutils import (
     run_sync_in_worker_thread,
@@ -99,7 +94,6 @@ from prefect.utilities.callables import (
     parameters_to_args_kwargs,
     raise_for_reserved_arguments,
 )
-from prefect.utilities.collections import listrepr
 from prefect.utilities.filesystem import relative_path_to_current_platform
 from prefect.utilities.hashing import file_hash
 from prefect.utilities.importtools import import_object, safe_load_namespace
@@ -123,7 +117,6 @@ if TYPE_CHECKING:
     from prefect.flows import FlowRun
 
 
-@PrefectObjectRegistry.register_instances
 class Flow(Generic[P, R]):
     """
     A Prefect workflow definition.
@@ -1593,96 +1586,7 @@ def _raise_on_name_with_banned_characters(name: str) -> str:
 flow.from_source = Flow.from_source
 
 
-def select_flow(
-    flows: Iterable[Flow],
-    flow_name: Optional[str] = None,
-    from_message: Optional[str] = None,
-) -> Flow:
-    """
-    Select the only flow in an iterable or a flow specified by name.
-
-    Returns
-        A single flow object
-
-    Raises:
-        MissingFlowError: If no flows exist in the iterable
-        MissingFlowError: If a flow name is provided and that flow does not exist
-        UnspecifiedFlowError: If multiple flows exist but no flow name was provided
-    """
-    # Convert to flows by name
-    flows_dict = {f.name: f for f in flows}
-
-    # Add a leading space if given, otherwise use an empty string
-    from_message = (" " + from_message) if from_message else ""
-    if not Optional:
-        raise MissingFlowError(f"No flows found{from_message}.")
-
-    elif flow_name and flow_name not in flows_dict:
-        raise MissingFlowError(
-            f"Flow {flow_name!r} not found{from_message}. "
-            f"Found the following flows: {listrepr(flows_dict.keys())}. "
-            "Check to make sure that your flow function is decorated with `@flow`."
-        )
-
-    elif not flow_name and len(flows_dict) > 1:
-        raise UnspecifiedFlowError(
-            (
-                f"Found {len(flows_dict)} flows{from_message}:"
-                f" {listrepr(sorted(flows_dict.keys()))}. Specify a flow name to select a"
-                " flow."
-            ),
-        )
-
-    if flow_name:
-        return flows_dict[flow_name]
-    else:
-        return list(flows_dict.values())[0]
-
-
-def load_flows_from_script(path: str) -> List[Flow]:
-    """
-    Load all flow objects from the given python script. All of the code in the file
-    will be executed.
-
-    Returns:
-        A list of flows
-
-    Raises:
-        FlowScriptError: If an exception is encountered while running the script
-    """
-    return registry_from_script(path).get_instances(Flow)
-
-
-def load_flow_from_script(path: str, flow_name: Optional[str] = None) -> Flow:
-    """
-    Extract a flow object from a script by running all of the code in the file.
-
-    If the script has multiple flows in it, a flow name must be provided to specify
-    the flow to return.
-
-    Args:
-        path: A path to a Python script containing flows
-        flow_name: An optional flow name to look for in the script
-
-    Returns:
-        The flow object from the script
-
-    Raises:
-        FlowScriptError: If an exception is encountered while running the script
-        MissingFlowError: If no flows exist in the iterable
-        MissingFlowError: If a flow name is provided and that flow does not exist
-        UnspecifiedFlowError: If multiple flows exist but no flow name was provided
-    """
-    return select_flow(
-        load_flows_from_script(path),
-        flow_name=flow_name,
-        from_message=f"in script '{path}'",
-    )
-
-
-def load_flow_from_entrypoint(
-    entrypoint: str,
-) -> Flow:
+def load_flow_from_entrypoint(entrypoint: str) -> Flow:
     """
     Extract a flow object from a script at an entrypoint by running all of the code in the file.
 
@@ -1697,52 +1601,24 @@ def load_flow_from_entrypoint(
         FlowScriptError: If an exception is encountered while running the script
         MissingFlowError: If the flow function specified in the entrypoint does not exist
     """
-    with PrefectObjectRegistry(  # type: ignore
-        block_code_execution=True,
-        capture_failures=True,
-    ):
-        if ":" in entrypoint:
-            # split by the last colon once to handle Windows paths with drive letters i.e C:\path\to\file.py:do_stuff
-            path, func_name = entrypoint.rsplit(":", maxsplit=1)
-        else:
-            path, func_name = entrypoint.rsplit(".", maxsplit=1)
-        try:
-            flow = import_object(entrypoint)
-        except AttributeError as exc:
-            raise MissingFlowError(
-                f"Flow function with name {func_name!r} not found in {path!r}. "
-            ) from exc
-
-        if not isinstance(flow, Flow):
-            raise MissingFlowError(
-                f"Function with name {func_name!r} is not a flow. Make sure that it is "
-                "decorated with '@flow'."
-            )
-
-        return flow
-
-
-def load_flow_from_text(script_contents: AnyStr, flow_name: str) -> Flow:
-    """
-    Load a flow from a text script.
-
-    The script will be written to a temporary local file path so errors can refer
-    to line numbers and contextual tracebacks can be provided.
-    """
-    with NamedTemporaryFile(
-        mode="wt" if isinstance(script_contents, str) else "wb",
-        prefix=f"flow-script-{flow_name}",
-        suffix=".py",
-        delete=False,
-    ) as tmpfile:
-        tmpfile.write(script_contents)
-        tmpfile.flush()
+    if ":" in entrypoint:
+        # split by the last colon once to handle Windows paths with drive letters i.e C:\path\to\file.py:do_stuff
+        path, func_name = entrypoint.rsplit(":", maxsplit=1)
+    else:
+        path, func_name = entrypoint.rsplit(".", maxsplit=1)
     try:
-        flow = load_flow_from_script(tmpfile.name, flow_name=flow_name)
-    finally:
-        # windows compat
-        tmpfile.close()
-        os.remove(tmpfile.name)
+        flow = import_object(entrypoint)
+    except AttributeError as exc:
+        raise MissingFlowError(
+            f"Flow function with name {func_name!r} not found in {path!r}. "
+        ) from exc
+
+    if not isinstance(flow, Flow):
+        raise MissingFlowError(
+            f"Function with name {func_name!r} is not a flow. Make sure that it is "
+            "decorated with '@flow'."
+        )
+
     return flow
 
 

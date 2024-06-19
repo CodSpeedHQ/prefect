@@ -46,10 +46,8 @@ import prefect.serializers
 import prefect.blocks.notifications
 import prefect.blocks.system
 
-# Initialize the process-wide profile and registry at import time
 import prefect.context
 
-prefect.context.initialize_object_registry()
 
 # Perform any forward-ref updates needed for Pydantic models
 import prefect.client.schemas

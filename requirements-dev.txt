@@ -35,6 +35,7 @@ vermin
 virtualenv
 watchfiles
 respx
+packaging
 
 # type stubs
 types-cachetools
